@@ -121,6 +121,114 @@ Extract ALL of the following. Be thorough. Respond with ONLY a valid JSON object
 
 
 # ---------------------------------------------------------------------------
+# Split extraction prompts — Pass 2a: Core Analysis, Pass 2b: Patterns
+# ---------------------------------------------------------------------------
+
+def build_core_extraction_prompt(
+    name: str,
+    triage_score: int,
+    triage_summary: str,
+    triage_topics: tuple[str, ...] | list[str],
+    full_text: str,
+    chunk_info: dict | None = None,
+) -> str:
+    """Build Pass 2a: Core Analysis extraction prompt (6 fields)."""
+    chunk_context = ""
+    if chunk_info and chunk_info.get("is_chunked"):
+        chunk_context = (
+            f"\n\nIMPORTANT: This is chunk {chunk_info['chunk_index'] + 1} "
+            f"of {chunk_info['total_chunks']} from a large conversation "
+            f"({chunk_info['original_tokens']} total tokens). "
+            f"Extract knowledge from THIS chunk. Results will be merged later."
+        )
+
+    topics_str = ", ".join(triage_topics) if triage_topics else ""
+
+    return f"""You are an expert knowledge extraction agent. Extract the CORE ANALYSIS from this Claude AI conversation.{chunk_context}
+
+CONVERSATION TITLE: {name}
+TRIAGE SCORE: {triage_score}/5
+TRIAGE SUMMARY: {triage_summary}
+TRIAGE TOPICS: {topics_str}
+
+CONVERSATION:
+{full_text}
+
+Extract the following core analysis fields. Be thorough but concise. Respond with ONLY a valid JSON object (no markdown fences):
+{{
+  "problem_statement": "<what problem or goal initiated this conversation>",
+  "context": "<relevant background and constraints>",
+  "approach_strategy": "<high-level approach or strategy developed>",
+  "key_decisions": [
+    {{"decision": "<what was decided>", "reasoning": "<why>", "alternatives_considered": ["<alt1>"]}}
+  ],
+  "frameworks": [
+    {{"name": "<framework name>", "description": "<what it does>", "steps": ["<step1>", "<step2>"], "when_to_use": "<conditions>"}}
+  ],
+  "mistakes_and_lessons": [
+    {{"mistake": "<what went wrong>", "lesson": "<what was learned>", "prevention": "<how to avoid>"}}
+  ]
+}}"""
+
+
+def build_patterns_extraction_prompt(
+    name: str,
+    triage_score: int,
+    triage_summary: str,
+    triage_topics: tuple[str, ...] | list[str],
+    full_text: str,
+    core_extraction: dict,
+    chunk_info: dict | None = None,
+) -> str:
+    """Build Pass 2b: Patterns & Skills extraction prompt (7 fields)."""
+    chunk_context = ""
+    if chunk_info and chunk_info.get("is_chunked"):
+        chunk_context = (
+            f"\n\nIMPORTANT: This is chunk {chunk_info['chunk_index'] + 1} "
+            f"of {chunk_info['total_chunks']} from a large conversation "
+            f"({chunk_info['original_tokens']} total tokens). "
+            f"Extract knowledge from THIS chunk. Results will be merged later."
+        )
+
+    topics_str = ", ".join(triage_topics) if triage_topics else ""
+    core_context = json.dumps(core_extraction, indent=1) if core_extraction else "{}"
+
+    return f"""You are an expert knowledge extraction agent. Extract PATTERNS, TOOLS, and SKILLS from this Claude AI conversation.{chunk_context}
+
+CONVERSATION TITLE: {name}
+TRIAGE SCORE: {triage_score}/5
+TRIAGE SUMMARY: {triage_summary}
+TRIAGE TOPICS: {topics_str}
+
+ALREADY EXTRACTED (do not duplicate):
+{core_context}
+
+CONVERSATION:
+{full_text}
+
+Extract the following pattern and skill fields. Do NOT duplicate information already extracted above. Respond with ONLY a valid JSON object (no markdown fences):
+{{
+  "reusable_patterns": [
+    {{"pattern": "<pattern name>", "description": "<what it is>", "example": "<brief example>", "reusability": "high|medium|low"}}
+  ],
+  "tools_and_tech": [
+    {{"name": "<tool/technology>", "usage": "<how it was used>", "proficiency": "learning|competent|proficient|expert"}}
+  ],
+  "templates_artifacts": [
+    {{"type": "prompt|workflow|document|code|config", "name": "<artifact name>", "description": "<what it does>", "content_summary": "<brief content>"}}
+  ],
+  "unfinished_ideas": [
+    {{"idea": "<what was started but not completed>", "potential": "<why it is worth revisiting>", "next_steps": ["<step1>"]}}
+  ],
+  "skill_candidates": [
+    {{"name": "<skill name>", "description": "<what the skill does>", "trigger": "<when to activate>", "inputs": ["<input1>"], "outputs": ["<output1>"], "complexity": "simple|moderate|complex"}}
+  ],
+  "tags": ["<tag1>", "<tag2>"],
+  "connections_to_other_work": ["<related topic or conversation>"]
+}}"""
+
+
+# ---------------------------------------------------------------------------
 # Synthesis prompt (Sonnet — combine all extractions)
 # ---------------------------------------------------------------------------
 
