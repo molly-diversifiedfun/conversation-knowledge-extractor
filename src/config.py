@@ -33,7 +33,7 @@ class Config:
     extraction_max_tokens: int = 8192
     extraction_core_max_tokens: int = 8192
     extraction_patterns_max_tokens: int = 8192
-    synthesis_max_tokens: int = 8192
+    synthesis_max_tokens: int = 16384
 
     # Rate limiting (seconds between calls)
     triage_delay: float = 1.0

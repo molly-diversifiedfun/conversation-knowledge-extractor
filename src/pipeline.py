@@ -494,6 +494,14 @@ def run_synthesis_pass(
     prompt = build_synthesis_prompt(all_extractions, len(all_extractions))
 
     cost = state.cost
+    empty_synthesis = {
+        "domains": [],
+        "cross_domain_connections": [],
+        "top_skill_candidates": [],
+        "knowledge_gaps": [],
+        "meta_patterns": [],
+        "statistics": {"total_conversations_analyzed": len(state.extractions)},
+    }
     try:
         resp = client.call(
             model=config.synthesis_model,
@@ -502,8 +510,8 @@ def run_synthesis_pass(
             prompt=prompt,
             rate_limit_gap=config.extraction_delay,
         )
-        synthesis = parse_json_response(resp.text)
 
+        # Track cost before parsing (so it's counted even if parse fails)
         call_cost = (
             resp.input_tokens * config.sonnet_input_cost
             + resp.output_tokens * config.sonnet_output_cost
@@ -514,15 +522,34 @@ def run_synthesis_pass(
             synthesis_output_tokens=cost.synthesis_output_tokens + resp.output_tokens,
             total_usd=cost.total_usd + call_cost,
         )
+
+        # Try normal parse first
+        try:
+            synthesis = parse_json_response(resp.text)
+        except (json.JSONDecodeError, ValueError):
+            # Fallback: recover partial JSON (same pattern as extraction)
+            logger.warning(
+                "Synthesis JSON parse failed (stop_reason=%s), attempting recovery",
+                resp.stop_reason,
+            )
+            recovered = recover_partial_json(resp.text)
+            if recovered:
+                logger.info(
+                    "Synthesis: recovered %d fields from truncated response",
+                    len(recovered),
+                )
+                synthesis = {**empty_synthesis, **recovered}
+            else:
+                logger.error("Synthesis: recovery failed, using empty synthesis")
+                synthesis = {
+                    **empty_synthesis,
+                    "meta_patterns": ["Synthesis response was truncated and unrecoverable"],
+                }
     except Exception as e:
         logger.error("Synthesis failed: %s", e)
         synthesis = {
-            "domains": [],
-            "cross_domain_connections": [],
-            "top_skill_candidates": [],
-            "knowledge_gaps": [],
+            **empty_synthesis,
             "meta_patterns": [f"Synthesis failed: {e}"],
-            "statistics": {"total_conversations_analyzed": len(state.extractions)},
         }
 
     state = replace(state, phase="complete", synthesis=synthesis, cost=cost)
